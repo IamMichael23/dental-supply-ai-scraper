@@ -91,6 +91,7 @@ async def _run_scraper(config: dict, log) -> None:
         "db_path": db_path, "run_id": run_id,
         "base_url": config["scraping"]["base_url"],
         "max_retries": config.get("retry", {}).get("max_retries", 3),
+        "max_pages": config["scraping"].get("max_pages", 0),  # 0 = unlimited
     }
     graph = build_graph(browser, llm, graph_config)
 

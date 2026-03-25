@@ -192,7 +192,9 @@ def route_after_extract(state: dict) -> str:
     return "recover" if state.get("error") else "validate_and_store"
 
 
-def route_after_validate(state: dict) -> str:
+def route_after_validate(state: dict, *, max_pages: int = 0) -> str:
+    if max_pages and state.get("stats", {}).get("pages_fetched", 0) >= max_pages:
+        return "__end__"
     if not state.get("urls_to_visit") and not state.get("current_url"):
         return "__end__"
     return "fetch"
@@ -224,10 +226,14 @@ def build_graph(browser, llm, config: dict):
         db_path=config["db_path"], run_id=config["run_id"],
     ))
 
+    max_pages = config.get("max_pages", 0)
+    def _route_validate(state: dict) -> str:
+        return route_after_validate(state, max_pages=max_pages)
+
     graph.set_entry_point("fetch")
     graph.add_conditional_edges("fetch", route_after_fetch)
     graph.add_conditional_edges("classify_and_extract", route_after_extract)
-    graph.add_conditional_edges("validate_and_store", route_after_validate)
+    graph.add_conditional_edges("validate_and_store", _route_validate)
     graph.add_conditional_edges("recover", route_after_recover)
 
     return graph.compile()
