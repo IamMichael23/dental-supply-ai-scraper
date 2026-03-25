@@ -38,7 +38,7 @@ class TestBrowserManager:
     def test_extract_json_ld_missing(self):
         bm = BrowserManager(headless=True, user_agent="test", viewport_width=1280, viewport_height=720)
         result = bm._extract_json_ld("<html><body>no json-ld</body></html>")
-        assert result is None
+        assert result == []
 
     async def test_on_response_captures_json(self):
         bm = BrowserManager(headless=True, user_agent="test", viewport_width=1280, viewport_height=720)

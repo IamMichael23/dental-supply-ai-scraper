@@ -98,7 +98,7 @@ async def _run_scraper(config: dict, log) -> None:
     log.info("starting_scrape", seed_urls=seed_urls, thread_id=state["thread_id"])
 
     try:
-        final_state = await graph.ainvoke(state)
+        final_state = await graph.ainvoke(state, config={"recursion_limit": 2000})
         stats = final_state.get("stats", {})
         await database.complete_run(run_id, stats, db_path)
         await database.export_json(db_path, json_path)

@@ -24,21 +24,15 @@ class LLMClient:
                 "required": ["page_type"],
             },
         }
-        response = await self._client.messages.create(
-            model=self._model, max_tokens=256, tools=[tool],
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"URL: {url}\n\nHTML snippet:\n{self._truncate_html(html_snippet)}\n\n"
-                    "Classify this page as 'listing' (category/catalog page with links to products), "
-                    "'product_detail' (single product page), or 'unknown'."
-                ),
-            }],
+        result = await self._call_tool(
+            tool, max_tokens=256,
+            content=(
+                f"URL: {url}\n\nHTML snippet:\n{self._truncate_html(html_snippet)}\n\n"
+                "Classify this page as 'listing' (category/catalog page with links to products), "
+                "'product_detail' (single product page), or 'unknown'."
+            ),
         )
-        for block in response.content:
-            if block.type == "tool_use":
-                return block.input["page_type"]
-        return "unknown"
+        return result.get("page_type", "unknown")
 
     async def extract_product_data(self, html: str, url: str) -> dict:
         tool = {
@@ -73,17 +67,10 @@ class LLMClient:
                 "required": ["product_name", "sku"],
             },
         }
-        response = await self._client.messages.create(
-            model=self._model, max_tokens=self._max_tokens, tools=[tool],
-            messages=[{
-                "role": "user",
-                "content": f"URL: {url}\n\nHTML:\n{self._truncate_html(html)}\n\nExtract all product data.",
-            }],
+        return await self._call_tool(
+            tool,
+            content=f"URL: {url}\n\nHTML:\n{self._truncate_html(html)}\n\nExtract all product data.",
         )
-        for block in response.content:
-            if block.type == "tool_use":
-                return block.input
-        return {}
 
     async def extract_subcategories(self, html: str, url: str) -> list[dict]:
         tool = {
@@ -107,20 +94,46 @@ class LLMClient:
                 "required": ["subcategories"],
             },
         }
+        result = await self._call_tool(
+            tool,
+            content=(
+                f"URL: {url}\n\nLinks found on page:\n{self._extract_links(html)}\n\n"
+                "Extract all subcategory links and product page links."
+            ),
+        )
+        return result.get("subcategories", [])
+
+    async def _call_tool(self, tool: dict, content: str, max_tokens: int | None = None) -> dict:
+        """Call Claude with a single tool and return the tool_use input dict, or {} on no match."""
         response = await self._client.messages.create(
-            model=self._model, max_tokens=self._max_tokens, tools=[tool],
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"URL: {url}\n\nHTML:\n{self._truncate_html(html)}\n\n"
-                    "Extract all subcategory links and product page links."
-                ),
-            }],
+            model=self._model,
+            max_tokens=max_tokens or self._max_tokens,
+            tools=[tool],
+            messages=[{"role": "user", "content": content}],
         )
         for block in response.content:
             if block.type == "tool_use":
-                return block.input.get("subcategories", [])
-        return []
+                return block.input
+        return {}
+
+    def _extract_links(self, html: str, max_links: int = 500) -> str:
+        """Extract <a href> tags — always includes catalog/product links even if
+        the anchor contains only an image (no visible text)."""
+        anchors = re.findall(r'<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, re.DOTALL | re.IGNORECASE)
+        lines = []
+        seen: set[str] = set()
+        for href, inner in anchors:
+            if not href or href in seen:
+                continue
+            text = re.sub(r"<[^>]+>", "", inner).strip()
+            is_product_url = "/catalog/" in href or "/product/" in href
+            label = text or (href.rstrip("/").split("/")[-1].replace("-", " ").title() if is_product_url else "")
+            if label:
+                lines.append(f"{label} -> {href}")
+                seen.add(href)
+            if len(lines) >= max_links:
+                break
+        return "\n".join(lines)
 
     def _truncate_html(self, html: str, max_chars: int = 6000) -> str:
         html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)

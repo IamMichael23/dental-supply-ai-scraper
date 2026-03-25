@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Optional
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, Response
 from scraper.models import PageResult
@@ -42,7 +41,7 @@ class BrowserManager:
                 intercepted_data=dict(self._intercepted_data), status_code=200,
             )
         except Exception as e:
-            return PageResult(url=url, html="", json_ld=None, status_code=0, error=str(e))
+            return PageResult(url=url, html="", json_ld=[], status_code=0, error=str(e))
 
     async def _on_response(self, response: Response) -> None:
         content_type = response.headers.get("content-type", "")
@@ -54,7 +53,7 @@ class BrowserManager:
             except Exception:
                 pass
 
-    def _extract_json_ld(self, html: str) -> Optional[list[dict]]:
+    def _extract_json_ld(self, html: str) -> list[dict]:
         matches = re.findall(
             r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
             html, re.DOTALL,
@@ -69,7 +68,7 @@ class BrowserManager:
                     results.extend(item for item in parsed if isinstance(item, dict))
             except json.JSONDecodeError:
                 pass
-        return results if results else None
+        return results
 
     async def close(self) -> None:
         if self._browser:

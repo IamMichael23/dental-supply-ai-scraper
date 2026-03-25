@@ -50,7 +50,7 @@ class ScrapingError(BaseModel):
 class PageResult:
     url: str
     html: str
-    json_ld: Optional[list[dict]]
+    json_ld: list[dict] = field(default_factory=list)
     intercepted_data: dict = field(default_factory=dict)
     status_code: int = 200
     error: Optional[str] = None

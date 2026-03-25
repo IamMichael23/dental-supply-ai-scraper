@@ -4,6 +4,9 @@ from pathlib import Path
 import aiosqlite
 from scraper.models import Product, ScrapingError
 
+# Fields stored as JSON strings in SQLite — must be deserialized on read
+JSON_FIELDS = ("category_hierarchy", "variants", "specifications", "image_urls", "alternative_products")
+
 
 async def init_db(db_path: str) -> None:
     schema_path = Path(__file__).parent / "schema.sql"
@@ -97,11 +100,7 @@ async def get_run_stats(thread_id: str, db_path: str) -> dict:
         )
         row = await cursor.fetchone()
         if row:
-            return {
-                "total_products": row[0],
-                "total_errors": row[1],
-                "status": row[2],
-            }
+            return {"total_products": row[0], "total_errors": row[1], "status": row[2]}
         return {}
 
 
@@ -111,20 +110,11 @@ async def export_json(db_path: str, json_path: str) -> None:
         cursor = await db.execute("SELECT * FROM products")
         rows = await cursor.fetchall()
     products = []
-    json_fields = (
-        "category_hierarchy",
-        "variants",
-        "specifications",
-        "image_urls",
-        "alternative_products",
-    )
     for row in rows:
         product = dict(row)
-        for field in json_fields:
-            if product.get(field) and isinstance(product[field], str):
+        for field in JSON_FIELDS:
+            if isinstance(product.get(field), str):
                 product[field] = json.loads(product[field])
         products.append(product)
     Path(json_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(json_path).write_text(
-        json.dumps(products, indent=2, default=str)
-    )
+    Path(json_path).write_text(json.dumps(products, indent=2, default=str))

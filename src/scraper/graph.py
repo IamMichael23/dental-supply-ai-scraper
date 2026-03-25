@@ -24,6 +24,15 @@ def _classify_by_url(url: str) -> str:
     return "unknown"
 
 
+def _advance_queue(state: dict, extra_urls: list[str] | None = None) -> dict:
+    """Pop the next URL from the queue and return partial state update."""
+    queue = list(state.get("urls_to_visit", [])) + (extra_urls or [])
+    if queue:
+        next_url = queue.pop(0)
+        return {"current_url": next_url, "urls_to_visit": queue}
+    return {"current_url": "", "urls_to_visit": []}
+
+
 # --- Node Functions ---
 # Each accepts (state, **injected_deps) and returns a partial state dict.
 # Dependencies are bound via functools.partial in build_graph().
@@ -61,19 +70,21 @@ async def classify_and_extract_node(state: dict, *, llm) -> dict:
     try:
         if page_type == "product_detail":
             # JSON-LD first, Claude fallback
-            product_ld = None
-            if json_ld:
-                for block in json_ld:
-                    if isinstance(block, dict) and block.get("@type") == "Product":
-                        product_ld = block
-                        break
+            product_ld = next(
+                (b for b in json_ld if isinstance(b, dict) and b.get("@type") == "Product"),
+                None,
+            ) if json_ld else None
+
             if product_ld:
+                img = product_ld.get("image")
+                # Derive SKU from URL slug when JSON-LD omits it
+                sku = product_ld.get("sku") or urlparse(url).path.rstrip("/").split("/")[-1]
                 product_data = {
                     "product_name": product_ld.get("name", ""),
-                    "sku": product_ld.get("sku", ""),
+                    "sku": sku,
                     "price": product_ld.get("offers", {}).get("price"),
                     "description": product_ld.get("description"),
-                    "image_urls": [product_ld["image"]] if product_ld.get("image") else [],
+                    "image_urls": img if isinstance(img, list) else ([img] if img else []),
                     "product_url": url,
                     "category_hierarchy": [],
                 }
@@ -102,7 +113,7 @@ async def classify_and_extract_node(state: dict, *, llm) -> dict:
 
 
 async def validate_and_store_node(state: dict, *, db_path: str, run_id: int, base_url: str) -> dict:
-    stats = dict(state["stats"])
+    stats = dict(state["stats"])  # copy — must not mutate LangGraph state in-place
     new_urls = []
 
     if state.get("page_type") == "product_detail" and state.get("extracted_data"):
@@ -120,66 +131,45 @@ async def validate_and_store_node(state: dict, *, db_path: str, run_id: int, bas
     elif state.get("page_type") == "listing" and state.get("extracted_data"):
         urls_data = state["extracted_data"].get("urls", [])
         visited = set(state.get("visited_urls", []))
+        base_host = urlparse(base_url).netloc
         for item in urls_data:
             full_url = urljoin(base_url, item["url"])
-            if full_url not in visited:
+            parsed = urlparse(full_url)
+            # Only follow same-domain catalog/product URLs
+            if (parsed.netloc == base_host
+                    and any(seg in parsed.path for seg in ("/catalog/", "/product/"))
+                    and full_url not in visited):
                 new_urls.append(full_url)
 
-    # Advance URL queue: pop next URL
-    queue = list(state.get("urls_to_visit", [])) + new_urls
-    if queue:
-        next_url = queue.pop(0)
-        return {
-            "current_url": next_url,
-            "urls_to_visit": queue,
-            "stats": stats,
-            "error": None,
-            "retry_count": 0,
-            "extracted_data": None,
-            "page_result": None,
-        }
-    else:
-        return {
-            "current_url": "",
-            "urls_to_visit": [],
-            "stats": stats,
-            "error": None,
-            "retry_count": 0,
-            "extracted_data": None,
-            "page_result": None,
-        }
+    return {
+        **_advance_queue(state, new_urls),
+        "stats": stats,
+        "error": None,
+        "retry_count": 0,
+        "extracted_data": None,
+        "page_result": None,
+    }
 
 
 async def recover_node(state: dict, *, max_retries: int, db_path: str, run_id: int) -> dict:
     url = state["current_url"]
     retry_count = state.get("retry_count", 0)
-    stats = dict(state["stats"])
+    stats = dict(state["stats"])  # copy — must not mutate LangGraph state in-place
 
     if retry_count < max_retries:
         # Retry same URL — do NOT log an error yet (URL may still succeed)
         log.warning("recover_node_retry", url=url, retry_count=retry_count, max_retries=max_retries)
         return {"retry_count": retry_count + 1, "error": state.get("error"), "current_url": url}
-    else:
-        # Final skip — log error and advance to next URL
-        error = ScrapingError(
-            url=url, error_type="scrape_error",
-            error_message=state.get("error", "unknown"), attempt_count=retry_count + 1,
-        )
-        await database.log_error(error, run_id, db_path)
-        stats["errors"] += 1
-        log.warning("recover_node_skip", url=url, retry_count=retry_count, max_retries=max_retries)
-        queue = list(state.get("urls_to_visit", []))
-        if queue:
-            next_url = queue.pop(0)
-            return {
-                "current_url": next_url, "urls_to_visit": queue,
-                "retry_count": 0, "error": None, "stats": stats,
-            }
-        else:
-            return {
-                "current_url": "", "urls_to_visit": [],
-                "retry_count": 0, "error": None, "stats": stats,
-            }
+
+    # Final skip — log error and advance to next URL
+    error = ScrapingError(
+        url=url, error_type="scrape_error",
+        error_message=state.get("error", "unknown"), attempt_count=retry_count + 1,
+    )
+    await database.log_error(error, run_id, db_path)
+    stats["errors"] += 1
+    log.warning("recover_node_skip", url=url, retry_count=retry_count, max_retries=max_retries)
+    return {**_advance_queue(state), "retry_count": 0, "error": None, "stats": stats}
 
 
 # --- Routing Functions ---
