@@ -44,7 +44,7 @@ The system is a **LangGraph StateGraph** with four async agent nodes connected b
 | **fetch_node** | Launches a headless Chromium browser, loads the page, intercepts AJAX payloads, extracts JSON-LD blocks, and returns raw page data |
 | **classify_and_extract_node** | Classifies the page type (listing vs product detail) using URL heuristics first, then Claude fallback. Extracts structured data from JSON-LD or via Claude tool-use |
 | **validate_and_store_node** | Validates extracted data with Pydantic, upserts products to SQLite, and advances the URL queue |
-| **recover_node** | Implements exponential retry on failure. Logs errors to the database only on final skip — retried URLs that eventually succeed leave no phantom error records |
+| **recover_node** | Retries the same URL up to `max_retries` times on failure. Logs errors to the database only on final skip — retried URLs that eventually succeed leave no phantom error records |
 
 ---
 
@@ -99,8 +99,8 @@ scraping:
   request_delay_seconds: 1.5
 
 llm:
-  model: claude-haiku-4-5-20251001   # cheapest; use claude-sonnet-4-6 for higher accuracy
-  max_tokens: 1024
+  model: claude-sonnet-4-20250514
+  max_tokens: 4096
 ```
 
 ### Run
@@ -148,7 +148,7 @@ pytest tests/ -v
 | `scraped_at` | TIMESTAMP | First scraped (preserved on re-run) |
 | `updated_at` | TIMESTAMP | Last updated |
 
-**`scrape_runs` table** — one row per invocation, keyed by `thread_id` for resumability.
+**`scrape_runs` table** — one row per invocation tracking start time, completion time, product count, error count, and status.
 
 **`errors` table** — one row per permanently failed URL (after all retries exhausted).
 
@@ -202,7 +202,7 @@ Flat array of product objects matching the schema above, with JSON fields deseri
 
 | Failure Type | Handling |
 |---|---|
-| Page load error / timeout | `recover_node` retries up to `max_retries` (default 3) with exponential backoff |
+| Page load error / timeout | `recover_node` retries up to `max_retries` (default 3) before skipping |
 | LLM returns empty response | Treated as an error; routed to `recover_node` for retry |
 | Pydantic validation failure | Logged as a warning; scraper advances to next URL without crashing |
 | Permanently failed URL | Logged to `errors` table after all retries exhausted |
