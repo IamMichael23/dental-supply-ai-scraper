@@ -8,3 +8,4 @@ dist/
 .pytest_cache/
 .venv/
 .worktrees/
+.DS_Store
