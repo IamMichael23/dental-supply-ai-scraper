@@ -80,11 +80,17 @@ async def classify_and_extract_node(state: dict, *, llm) -> dict:
                 return {"page_type": page_type, "extracted_data": {"product": product_data}, "error": None}
             else:
                 product_data = await llm.extract_product_data(html, url)
+                if not product_data or not product_data.get("product_name"):
+                    log.warning("empty_llm_response", url=url, page_type="product_detail")
+                    return {"page_type": page_type, "extracted_data": None, "error": "LLM returned empty product data"}
                 product_data["product_url"] = url
                 return {"page_type": page_type, "extracted_data": {"product": product_data}, "error": None}
 
         elif page_type == "listing":
             subcategories = await llm.extract_subcategories(html, url)
+            if not subcategories:
+                log.warning("empty_llm_response", url=url, page_type="listing")
+                return {"page_type": page_type, "extracted_data": None, "error": "LLM returned no subcategories"}
             return {"page_type": page_type, "extracted_data": {"urls": subcategories}, "error": None}
 
         else:
