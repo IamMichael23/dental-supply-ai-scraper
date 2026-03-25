@@ -143,19 +143,19 @@ async def recover_node(state: dict, *, max_retries: int, db_path: str, run_id: i
     retry_count = state.get("retry_count", 0)
     stats = dict(state["stats"])
 
-    error = ScrapingError(
-        url=url, error_type="scrape_error",
-        error_message=state.get("error", "unknown"), attempt_count=retry_count + 1,
-    )
-    await database.log_error(error, run_id, db_path)
-    log.warning("recover_node", url=url, retry_count=retry_count, max_retries=max_retries)
-
     if retry_count < max_retries:
-        # Retry same URL
+        # Retry same URL — do NOT log an error yet (URL may still succeed)
+        log.warning("recover_node_retry", url=url, retry_count=retry_count, max_retries=max_retries)
         return {"retry_count": retry_count + 1, "error": state.get("error"), "current_url": url}
     else:
-        # Skip — advance to next URL
+        # Final skip — log error and advance to next URL
+        error = ScrapingError(
+            url=url, error_type="scrape_error",
+            error_message=state.get("error", "unknown"), attempt_count=retry_count + 1,
+        )
+        await database.log_error(error, run_id, db_path)
         stats["errors"] += 1
+        log.warning("recover_node_skip", url=url, retry_count=retry_count, max_retries=max_retries)
         queue = list(state.get("urls_to_visit", []))
         if queue:
             next_url = queue.pop(0)
@@ -187,10 +187,11 @@ def route_after_validate(state: dict) -> str:
 
 
 def route_after_recover(state: dict) -> str:
-    # retry_count > 0 means we're retrying; 0 means we skipped
-    if state.get("retry_count", 0) > 0 and state.get("error"):
-        return "fetch"
-    return "validate_and_store"
+    # No current_url means queue exhausted after skip → end
+    if not state.get("current_url"):
+        return "__end__"
+    # Both retrying (retry_count > 0) and skipping (retry_count = 0, next URL set) → fetch
+    return "fetch"
 
 
 # --- Graph Builder ---

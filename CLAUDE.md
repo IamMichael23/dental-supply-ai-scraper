@@ -19,6 +19,17 @@ Python 3.11+, LangGraph, Playwright, Claude API (Sonnet), SQLite, Pydantic, clic
 - 15-second max timeout on all page loads
 - Import style: `from scraper.models import Product` (absolute, not relative)
 
+## LangGraph State Reducer Rules
+
+- `urls_to_visit` is a **managed queue** (replaced wholesale by nodes) — NEVER use `Annotated[list[str], add]` on it; use plain `list[str]` so nodes can replace it
+- `visited_urls` is **append-only** — use `Annotated[list[str], add]` so every node can safely add entries
+- Mixing `add` reducers with queue-management logic causes silent URL duplication (every URL gets visited multiple times and the scraper never converges)
+
+## Graph Routing Rules
+
+- `recover_node` must only log errors to the database on **final skip** (retry_count >= max_retries), NOT on retries — URLs that eventually succeed must not leave phantom error rows
+- `route_after_recover`: after a skip, set `current_url` to the next URL and route to `fetch` (not `validate_and_store`) — routing to `validate_and_store` after a skip causes it to pop and discard the next URL from the queue
+
 ## Interface Contracts
 
 ```python

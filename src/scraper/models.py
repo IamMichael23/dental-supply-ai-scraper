@@ -57,8 +57,9 @@ class PageResult:
 
 
 class ScraperState(TypedDict, total=False):
-    """LangGraph state. Fields with Annotated[..., add] use append reducers."""
-    urls_to_visit: Annotated[list[str], add]
+    """LangGraph state. Only visited_urls uses an append reducer (add).
+    urls_to_visit is a managed queue replaced wholesale by nodes — no add reducer."""
+    urls_to_visit: list[str]
     visited_urls: Annotated[list[str], add]
     current_url: str
     page_result: Optional[dict]

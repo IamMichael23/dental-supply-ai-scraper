@@ -44,10 +44,15 @@ class TestRouting:
         assert route_after_validate({"urls_to_visit": ["x"], "current_url": "x"}) == "fetch"
 
     def test_route_after_recover_retry(self):
-        assert route_after_recover({"retry_count": 1, "error": "retry"}) == "fetch"
+        assert route_after_recover({"retry_count": 1, "error": "retry", "current_url": "https://example.com/product/fail"}) == "fetch"
 
-    def test_route_after_recover_skip(self):
-        assert route_after_recover({"retry_count": 0, "error": None}) == "validate_and_store"
+    def test_route_after_recover_skip_with_next_url(self):
+        # After skipping a URL, recover sets current_url to the next URL → fetch it
+        assert route_after_recover({"retry_count": 0, "error": None, "current_url": "https://example.com/product/next"}) == "fetch"
+
+    def test_route_after_recover_skip_empty_queue(self):
+        # After skipping last URL, current_url is empty → end
+        assert route_after_recover({"retry_count": 0, "error": None, "current_url": ""}) == "__end__"
 
 
 class TestFetchNode:
@@ -178,10 +183,38 @@ class TestValidateAndStoreNode:
         )
         assert result["current_url"] != ""
 
+    async def test_no_url_duplication(self, tmp_path):
+        """C1: returned urls_to_visit must be the exact remaining queue, not duplicated."""
+        from scraper import database
+        db_path = str(tmp_path / "test.db")
+        await database.init_db(db_path)
+        run_id = await database.start_run("test", db_path)
+        state = {
+            "page_type": "listing",
+            "extracted_data": {"urls": [{"name": "A", "url": "/product/a"}]},
+            "urls_to_visit": [
+                "https://example.com/product/b",
+                "https://example.com/product/c",
+            ],
+            "visited_urls": ["https://example.com/catalog/main"],
+            "current_url": "https://example.com/catalog/main",
+            "stats": {"products_saved": 0, "errors": 0, "pages_fetched": 1},
+            "error": None,
+            "retry_count": 0,
+        }
+        result = await validate_and_store_node(
+            state, db_path=db_path, run_id=run_id, base_url="https://example.com",
+        )
+        # The next URL is popped into current_url; remaining should be exactly 2 (b + c minus the popped one + new a)
+        all_urls = [result["current_url"]] + result["urls_to_visit"]
+        assert len(all_urls) == len(set(all_urls)), "URL duplication detected in queue"
+        assert len(all_urls) == 3  # /product/a + /product/b + /product/c
+
 
 class TestRecoverNode:
     async def test_retry(self, tmp_path):
         from scraper import database
+        import aiosqlite
         db_path = str(tmp_path / "test.db")
         await database.init_db(db_path)
         run_id = await database.start_run("test", db_path)
@@ -195,6 +228,11 @@ class TestRecoverNode:
         result = await recover_node(state, max_retries=3, db_path=db_path, run_id=run_id)
         assert result["retry_count"] == 1
         assert result["current_url"] == "https://example.com/product/fail"
+        # C3: retries should NOT log an error row — only final skips should
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM errors")
+            count = (await cursor.fetchone())[0]
+        assert count == 0, "retry should not log an error — only final skip should"
 
     async def test_skip_after_max_retries(self, tmp_path):
         from scraper import database
