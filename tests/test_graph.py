@@ -43,6 +43,24 @@ class TestRouting:
     def test_route_after_validate_continue(self):
         assert route_after_validate({"urls_to_visit": ["x"], "current_url": "x"}) == "fetch"
 
+    def test_route_after_validate_max_pages_reached(self):
+        """I2: route_after_validate must end when pages_fetched >= max_pages."""
+        state = {
+            "urls_to_visit": ["https://example.com/product/more"],
+            "current_url": "https://example.com/product/current",
+            "stats": {"pages_fetched": 5},
+        }
+        assert route_after_validate(state, max_pages=5) == "__end__"
+
+    def test_route_after_validate_max_pages_zero_unlimited(self):
+        """I2: max_pages=0 means unlimited — should continue."""
+        state = {
+            "urls_to_visit": ["https://example.com/product/more"],
+            "current_url": "https://example.com/product/current",
+            "stats": {"pages_fetched": 100},
+        }
+        assert route_after_validate(state, max_pages=0) == "fetch"
+
     def test_route_after_recover_retry(self):
         assert route_after_recover({"retry_count": 1, "error": "retry", "current_url": "https://example.com/product/fail"}) == "fetch"
 
@@ -119,6 +137,36 @@ class TestClassifyAndExtractNode:
         assert result["page_type"] == "product_detail"
         # LLM extract_product_data should NOT be called when JSON-LD has product data
         mock_llm.extract_product_data.assert_not_called()
+
+    async def test_empty_llm_product_response_returns_error(self, mock_llm):
+        """I5: Empty LLM response must set error so it routes to recover."""
+        mock_llm.extract_product_data.return_value = {}
+        state = {
+            "current_url": "https://safcodental.com/product/empty",
+            "page_result": {
+                "html": "<html>product</html>", "json_ld": None,
+                "url": "https://safcodental.com/product/empty",
+            },
+            "error": None,
+        }
+        result = await classify_and_extract_node(state, llm=mock_llm)
+        assert result["error"] is not None
+        assert result["extracted_data"] is None
+
+    async def test_empty_llm_listing_response_returns_error(self, mock_llm):
+        """I5: Empty subcategories list must set error so it routes to recover."""
+        mock_llm.extract_subcategories.return_value = []
+        state = {
+            "current_url": "https://safcodental.com/catalog/empty",
+            "page_result": {
+                "html": "<html>catalog</html>", "json_ld": None,
+                "url": "https://safcodental.com/catalog/empty",
+            },
+            "error": None,
+        }
+        result = await classify_and_extract_node(state, llm=mock_llm)
+        assert result["error"] is not None
+        assert result["extracted_data"] is None
 
     async def test_unknown_url_falls_back_to_llm(self, mock_llm):
         mock_llm.classify_page.return_value = "product_detail"

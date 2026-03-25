@@ -53,6 +53,28 @@ class TestDatabase:
             row = await cursor.fetchone()
         assert row[0] == 15.99
 
+    async def test_upsert_preserves_scraped_at(self, tmp_path, sample_product):
+        """I3: scraped_at must be preserved on re-upsert; updated_at must change."""
+        db_path = str(tmp_path / "test.db")
+        await init_db(db_path)
+        await upsert_product(sample_product, db_path)
+        import aiosqlite
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute(
+                "SELECT scraped_at, updated_at FROM products WHERE sku='GL-1001'"
+            )
+            first_scraped_at, first_updated_at = await cursor.fetchone()
+        # Re-upsert with a changed field
+        sample_product.price = 99.99
+        await upsert_product(sample_product, db_path)
+        async with aiosqlite.connect(db_path) as db:
+            cursor = await db.execute(
+                "SELECT scraped_at, updated_at FROM products WHERE sku='GL-1001'"
+            )
+            second_scraped_at, second_updated_at = await cursor.fetchone()
+        assert second_scraped_at == first_scraped_at, "scraped_at must not change on upsert"
+        assert second_updated_at >= first_updated_at, "updated_at must be refreshed on upsert"
+
     async def test_log_error(self, tmp_path):
         db_path = str(tmp_path / "test.db")
         await init_db(db_path)
