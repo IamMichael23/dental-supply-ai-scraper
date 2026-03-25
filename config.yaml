@@ -1,0 +1,30 @@
+scraping:
+  seed_urls:
+    - https://www.safcodental.com/catalog/sutures-surgical-products
+    - https://www.safcodental.com/catalog/gloves
+  base_url: https://www.safcodental.com
+  max_pages: 500
+  request_delay_seconds: 1.5
+  page_load_timeout_ms: 15000
+
+browser:
+  headless: true
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  viewport_width: 1280
+  viewport_height: 720
+
+llm:
+  model: claude-sonnet-4-20250514
+  max_tokens: 4096
+  temperature: 0
+
+retry:
+  max_retries: 3
+  base_delay_seconds: 2
+  backoff_multiplier: 2
+
+output:
+  json_path: output/products.json
+  database_path: output/products.db
+  checkpoint_path: output/checkpoints.db
+  log_dir: output/logs
