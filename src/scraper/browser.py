@@ -54,17 +54,22 @@ class BrowserManager:
             except Exception:
                 pass
 
-    def _extract_json_ld(self, html: str) -> Optional[dict]:
-        match = re.search(
+    def _extract_json_ld(self, html: str) -> Optional[list[dict]]:
+        matches = re.findall(
             r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
             html, re.DOTALL,
         )
-        if match:
+        results = []
+        for match in matches:
             try:
-                return json.loads(match.group(1))
+                parsed = json.loads(match)
+                if isinstance(parsed, dict):
+                    results.append(parsed)
+                elif isinstance(parsed, list):
+                    results.extend(item for item in parsed if isinstance(item, dict))
             except json.JSONDecodeError:
-                return None
-        return None
+                pass
+        return results if results else None
 
     async def close(self) -> None:
         if self._browser:

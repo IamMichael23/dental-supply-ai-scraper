@@ -61,13 +61,19 @@ async def classify_and_extract_node(state: dict, *, llm) -> dict:
     try:
         if page_type == "product_detail":
             # JSON-LD first, Claude fallback
-            if json_ld and json_ld.get("@type") == "Product":
+            product_ld = None
+            if json_ld:
+                for block in json_ld:
+                    if isinstance(block, dict) and block.get("@type") == "Product":
+                        product_ld = block
+                        break
+            if product_ld:
                 product_data = {
-                    "product_name": json_ld.get("name", ""),
-                    "sku": json_ld.get("sku", ""),
-                    "price": json_ld.get("offers", {}).get("price"),
-                    "description": json_ld.get("description"),
-                    "image_urls": [json_ld["image"]] if json_ld.get("image") else [],
+                    "product_name": product_ld.get("name", ""),
+                    "sku": product_ld.get("sku", ""),
+                    "price": product_ld.get("offers", {}).get("price"),
+                    "description": product_ld.get("description"),
+                    "image_urls": [product_ld["image"]] if product_ld.get("image") else [],
                     "product_url": url,
                     "category_hierarchy": [],
                 }

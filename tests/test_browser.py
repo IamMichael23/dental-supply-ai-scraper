@@ -14,7 +14,26 @@ class TestBrowserManager:
         bm = BrowserManager(headless=True, user_agent="test", viewport_width=1280, viewport_height=720)
         html = '<html><script type="application/ld+json">{"@type":"Product","name":"Test"}</script></html>'
         result = bm._extract_json_ld(html)
-        assert result["@type"] == "Product"
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["@type"] == "Product"
+
+    def test_extract_json_ld_multiple_blocks(self):
+        bm = BrowserManager(headless=True, user_agent="test", viewport_width=1280, viewport_height=720)
+        html = (
+            '<html>'
+            '<script type="application/ld+json">{"@type":"Organization","name":"Acme"}</script>'
+            '<script type="application/ld+json">{"@type":"Product","name":"Widget","sku":"W-1"}</script>'
+            '<script type="application/ld+json">{"@type":"BreadcrumbList"}</script>'
+            '</html>'
+        )
+        result = bm._extract_json_ld(html)
+        assert isinstance(result, list)
+        assert len(result) == 3
+        types = [block["@type"] for block in result]
+        assert "Product" in types
+        product_block = next(b for b in result if b["@type"] == "Product")
+        assert product_block["sku"] == "W-1"
 
     def test_extract_json_ld_missing(self):
         bm = BrowserManager(headless=True, user_agent="test", viewport_width=1280, viewport_height=720)

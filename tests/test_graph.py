@@ -107,7 +107,10 @@ class TestClassifyAndExtractNode:
             "current_url": "https://safcodental.com/product/test",
             "page_result": {
                 "html": "<html></html>",
-                "json_ld": {"@type": "Product", "name": "Test", "sku": "T-001"},
+                "json_ld": [
+                    {"@type": "Organization", "name": "Acme"},
+                    {"@type": "Product", "name": "Test", "sku": "T-001"},
+                ],
                 "url": "https://safcodental.com/product/test",
             },
             "error": None,
