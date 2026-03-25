@@ -2,7 +2,7 @@
 
 ## Architecture
 
-LangGraph StateGraph with 9 async nodes: navigator, pick_next_url, fetch_page, classifier, extract_listings, extract_product, validator, store, recovery. Playwright intercepts AJAX responses via `page.on("response")` for prices/stock. Claude Sonnet extracts structured data via tool_use.
+LangGraph StateGraph with 4 async nodes: fetch, classify_and_extract, validate_and_store, recover. Playwright intercepts AJAX responses via `page.on("response")` for prices/stock. Claude Sonnet extracts structured data via tool_use.
 
 ## Tech Stack
 
@@ -22,7 +22,7 @@ Python 3.11+, LangGraph, Playwright, Claude API (Sonnet), SQLite, Pydantic, clic
 ## Interface Contracts
 
 ```python
-# tools/browser.py — class-based
+# browser.py — class-based
 class BrowserManager:
     def __init__(self, headless, user_agent, viewport_width, viewport_height): ...
     async def start(self) -> None: ...
@@ -38,18 +38,21 @@ class PageResult:
     status_code: int
     error: Optional[str]
 
-# tools/llm.py — class-based
+# llm.py — class-based
 class LLMClient:
     def __init__(self, api_key: str, model: str): ...
     async def classify_page(self, html_snippet: str, url: str) -> str: ...
     async def extract_product_data(self, html: str, url: str) -> dict: ...
     async def extract_subcategories(self, html: str, url: str) -> list[dict]: ...
 
-# storage/database.py — module-level async functions
+# database.py — module-level async functions
 async def init_db(db_path: str) -> None: ...
 async def upsert_product(product: Product, db_path: str) -> None: ...
-async def log_error(error: ScrapingError, db_path: str) -> None: ...
+async def log_error(error: ScrapingError, run_id: int, db_path: str) -> None: ...
 async def get_run_stats(thread_id: str, db_path: str) -> dict: ...
+
+# graph.py — graph builder
+def build_graph(browser, llm, config: dict): ...
 
 # All graph node functions:
 async def node_name(state: dict) -> dict:  # returns partial state update
@@ -78,25 +81,12 @@ python -m scraper status
 
 ```
 src/scraper/
+├── __init__.py
 ├── main.py              # CLI (click)
-├── config.py            # Settings from config.yaml + .env
-├── models.py            # Product, ProductVariant, Category, ScrapingError
-├── state.py             # ScraperState TypedDict + reducers
-├── graph.py             # StateGraph assembly
-├── agents/
-│   ├── navigator.py
-│   ├── classifier.py
-│   ├── extractor.py
-│   ├── validator.py
-│   └── recovery.py
-├── tools/
-│   ├── browser.py       # Playwright + on("response") interception
-│   ├── llm.py           # Claude client + tool_use + prompt caching
-│   └── rate_limiter.py
-├── storage/
-│   ├── database.py      # SQLite ops (aiosqlite)
-│   ├── json_export.py   # JSONL export
-│   └── schema.sql       # DDL
-└── utils/
-    └── logging.py       # structlog setup
+├── models.py            # Product, ProductVariant, Category, ScrapingError, PageResult, ScraperState
+├── graph.py             # 4 node functions + routing + graph assembly
+├── browser.py           # BrowserManager + AJAX interception
+├── llm.py               # Claude client via anthropic SDK + tool_use
+├── database.py          # SQLite ops + schema init + JSON export
+└── schema.sql           # DDL
 ```

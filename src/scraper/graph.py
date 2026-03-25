@@ -6,7 +6,7 @@ import structlog
 from langgraph.graph import StateGraph
 
 from scraper.models import (
-    Product, ScrapingError,
+    Product, ScrapingError, ScraperState,
 )
 from scraper import database
 
@@ -196,7 +196,7 @@ def route_after_recover(state: dict) -> str:
 # --- Graph Builder ---
 
 def build_graph(browser, llm, config: dict):
-    graph = StateGraph(dict)
+    graph = StateGraph(ScraperState)
 
     # Bind dependencies to node functions via partial
     graph.add_node("fetch", functools.partial(fetch_node, browser=browser))
