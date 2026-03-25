@@ -17,11 +17,25 @@ async def upsert_product(product: Product, db_path: str) -> None:
     data = product.model_dump(mode="json")
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            """INSERT OR REPLACE INTO products
+            """INSERT INTO products
                (sku, product_name, brand, category_hierarchy, product_url, price,
                 variants, unit_pack_size, availability, description, specifications,
-                image_urls, alternative_products, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                image_urls, alternative_products, scraped_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+               ON CONFLICT(sku) DO UPDATE SET
+                   product_name=excluded.product_name,
+                   brand=excluded.brand,
+                   category_hierarchy=excluded.category_hierarchy,
+                   product_url=excluded.product_url,
+                   price=excluded.price,
+                   variants=excluded.variants,
+                   unit_pack_size=excluded.unit_pack_size,
+                   availability=excluded.availability,
+                   description=excluded.description,
+                   specifications=excluded.specifications,
+                   image_urls=excluded.image_urls,
+                   alternative_products=excluded.alternative_products,
+                   updated_at=CURRENT_TIMESTAMP
             """,
             (
                 data["sku"],
