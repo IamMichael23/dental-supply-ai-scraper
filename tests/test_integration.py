@@ -16,7 +16,7 @@ class TestIntegration:
         await database.init_db(db_path)
         run_id = await database.start_run("integration-test", db_path)
 
-        product_html = Path("tests/fixtures/product_page.html").read_text()
+        product_html = (Path(__file__).parent / "fixtures" / "product_page.html").read_text()
         mock_browser = AsyncMock()
         mock_browser.fetch_page.return_value = PageResult(
             url="https://www.safcodental.com/product/nitrile-gloves",
