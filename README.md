@@ -156,16 +156,45 @@ pytest tests/ -v
 
 Flat array of product objects matching the schema above, with JSON fields deserialized (not stored as strings).
 
+### Sample Output (`output/sample_output.json`)
+
+5 products from **Sutures & Surgical Products** and 5 from **Dental Exam Gloves** — included in the repository as a representative sample of the scraper output.
+
 ---
 
 ## Limitations
 
-- **No pagination handling** — if a category listing spans multiple pages, only the first page is processed. Page 2+ URLs would need to be discovered from "next page" links.
-- **Price extraction is best-effort** — prices loaded via AJAX are intercepted but AJAX endpoint structure may change without notice.
+### Scalability
+- **Single-threaded crawling** — one page at a time. At 1.5s delay + ~3s page load, throughput is ~20 pages/minute. A 10,000-product site would take ~8 hours.
+- **In-memory URL queue** — `urls_to_visit` lives in LangGraph state. A crash loses the entire queue; the run must restart from seed URLs.
+- **Single browser instance** — one Chromium process, no parallelism.
+- **SQLite write locks** — fine for one writer; breaks under concurrent workers.
+- **No pagination handling** — if a category listing spans multiple pages, only the first page is processed. "Next page" links would need to be detected and followed.
+
+### Reliability
+- **No crash recovery** — if the process dies mid-run, the queue is lost and `scrape_runs.status` stays `'running'` permanently.
+- **No retry backoff** — retries happen immediately. `base_delay_seconds` and `backoff_multiplier` exist in `config.yaml` but are not wired up in `recover_node`.
+- **No circuit breaker** — if the site goes down, every queued URL burns through all retries before the run ends. Nothing pauses or aborts early.
+- **AJAX interception is best-effort** — if the site changes its endpoint paths, `intercepted_data` will be silently empty.
 - **No proxy rotation** — a single IP is used; aggressive scraping may trigger rate limiting or blocks.
-- **No resume from mid-run** — the `thread_id` tracks run metadata but the URL queue is not persisted to disk, so a crash mid-run requires restarting from the seed URLs.
+
+### Observability
+- **No metrics** — nothing tracks LLM fallback rate, JSON-LD hit rate, pages/minute, or queue depth over time.
+- **No alerting** — no hooks to notify on high error rates or stalled runs.
+- **No live progress** — the `status` command only shows final counts from completed runs.
+- **Dead config fields** — `base_delay_seconds`, `backoff_multiplier`, `temperature`, and `checkpoint_path` are in `config.yaml` but never read. Silent config drift is hard to catch.
+
+### Maintainability
+- **No database migrations** — `schema.sql` uses `CREATE TABLE IF NOT EXISTS`. Adding a column to an existing database requires a manual `ALTER TABLE`.
+- **`categories` table is never written to** — present in the schema but the scraper does not populate it.
+- **`stats` dict is untyped** — plain `dict` with string keys; a `Stats` TypedDict would catch key typos at write time.
 - **Claude fallback accuracy** — extraction quality depends on how well the HTML maps to the tool schema. Unusual product layouts may yield partial data.
-- **Single-threaded crawling** — one page at a time; suitable for polite scraping, not high-throughput.
+
+### Data Completeness
+- **`category_hierarchy` is always empty** — JSON-LD on Safco does not include breadcrumb data, and the LLM extraction prompt does not currently target it. Would need a dedicated breadcrumb scraper or a prompt update.
+- **`brand` is rarely populated** — Safco does not consistently expose manufacturer in JSON-LD or structured markup; would need Claude to infer it from product descriptions.
+- **`availability` and `specifications` are empty** — stock status is loaded via AJAX but the endpoint payload structure varies by product. Specifications are embedded in unstructured HTML and require a dedicated extraction pass.
+- **HTML entities in product names** — names like `Ossify&reg;` are stored as-is from the site. The `sample_output.json` has these decoded, but `products.json` and the database retain the raw encoded strings.
 
 ---
 

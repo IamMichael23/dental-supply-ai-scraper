@@ -1,7 +1,8 @@
 __pycache__/
 *.pyc
 .env
-output/
+output/*
+!output/sample_output.json
 *.egg-info/
 dist/
 .ruff_cache/
